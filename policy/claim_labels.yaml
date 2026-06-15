@@ -1,0 +1,30 @@
+# Claim Labels - Taxonomy for claim classification
+version: 1.0.0
+
+labels:
+  - verified
+  - user_claimed
+  - inferred
+  - unknown
+  - blocked
+  - quarantined
+  - externally_validated
+  - monetized
+
+descriptions:
+  verified: "Supported by source, file, code, computation, hash, citation, or external record"
+  user_claimed: "Stated by the user but not independently verified"
+  inferred: "Reasonable from available context but not proven"
+  unknown: "Not observable from current evidence"
+  blocked: "Unsupported, unsafe, or unverifiable"
+  quarantined: "Potentially valuable but not yet defensible"
+  externally_validated: "Confirmed outside the chat/provider"
+  monetized: "Tied to payment, invoice, contract, buyer signal, usage, or revenue"
+
+blocked_patterns:
+  - "hidden model weights"
+  - "hidden cognition"
+  - "GPU priority"
+  - "provider savings"
+  - "private user ranking"
+  - "internal review"

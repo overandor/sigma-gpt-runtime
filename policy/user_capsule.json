@@ -1,0 +1,21 @@
+{
+  "user_id": "default",
+  "created_at": "2026-06-14T00:00:00Z",
+  "preferences": {
+    "default_output_preference": "Favor financeable artifacts over generic explanations",
+    "claim_labeling_mode": "strict",
+    "receipt_generation": "automatic_for_substantial_answers",
+    "policy_update_mode": "proposal_first"
+  },
+  "project_context": {
+    "active_projects": [],
+    "artifact_types": ["schema", "protocol", "spec", "code", "dataset", "receipt", "valuation_packet"],
+    "visibility_mode": "private"
+  },
+  "scoring_weights": {
+    "density_score": 0.3,
+    "defensibility_score": 0.3,
+    "artifact_yield": 0.2,
+    "proof_upgrade_score": 0.2
+  }
+}

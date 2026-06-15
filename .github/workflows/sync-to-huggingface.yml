@@ -1,0 +1,51 @@
+name: Sync to Hugging Face Space
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'space/**'
+      - 'policy/**'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install huggingface_hub
+        run: |
+          pip install huggingface_hub
+
+      - name: Sync to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SPACE_ID: YOUR_HF_USERNAME/YOUR_SPACE_NAME
+        run: |
+          python -c "
+          from huggingface_hub import HfApi
+          import os
+          
+          api = HfApi(token=os.environ['HF_TOKEN'])
+          space_id = os.environ['SPACE_ID']
+          
+          # Upload space files
+          api.upload_folder(
+              folder_path='space',
+              repo_id=space_id,
+              repo_type='space',
+              commit_message='Sync from GitHub'
+          )
+          
+          # Upload policy files
+          api.upload_folder(
+              folder_path='policy',
+              repo_id=space_id,
+              repo_type='space',
+              path_in_repo='data/policy',
+              commit_message='Update policy files'
+          )
+          "

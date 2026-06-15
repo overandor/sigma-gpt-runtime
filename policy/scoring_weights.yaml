@@ -1,0 +1,28 @@
+# Scoring Weights for Answer Evaluation
+version: 1.0.0
+
+density_score:
+  weight: 0.3
+  description: "Useful output per response"
+  calculation: "text_length / expected_length"
+
+defensibility_score:
+  weight: 0.3
+  description: "Share of claims with evidence support"
+  calculation: "verified_claims / total_claims"
+
+artifact_yield:
+  weight: 0.2
+  description: "Reusable outputs per interaction"
+  calculation: "artifacts_produced / interaction_count"
+
+proof_upgrade_score:
+  weight: 0.2
+  description: "Potential for external validation"
+  calculation: "external_validation_paths / total_claims"
+
+grade_thresholds:
+  A: 0.8
+  B: 0.6
+  C: 0.4
+  D: 0.2
