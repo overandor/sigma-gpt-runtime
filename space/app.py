@@ -5,7 +5,7 @@ Serves repo-backed personalization, receipts, and policy endpoints for Custom GP
 
 from fastapi import FastAPI, HTTPException, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import yaml
@@ -14,6 +14,9 @@ import hashlib
 import os
 from datetime import datetime
 import httpx
+import websockets
+import asyncio
+import json
 
 # Configuration
 HF_RUNTIME_TOKEN = os.getenv("HF_RUNTIME_TOKEN", "default-token-change-me")
@@ -26,13 +29,68 @@ ALLOW_DIRECT_REPO_WRITES = os.getenv("ALLOW_DIRECT_REPO_WRITES", "false").lower(
 # Gate.io configuration
 GATE_API_BASE = os.getenv("GATE_API_BASE", "https://api.gateio.ws/api/v4")
 GATE_WS_BASE = os.getenv("GATE_WS_BASE", "wss://fx-ws.gateio.ws/v4/ws/usdt")
+GATE_API_KEY = os.getenv("GATE_API_KEY", "")
+GATE_API_SECRET = os.getenv("GATE_API_SECRET", "")
 
 # Use local directories for testing, /data for HF Space
 IS_HF_SPACE = os.path.exists("/data")
 BASE_DIR = Path("/data") if IS_HF_SPACE else Path(__file__).parent.parent
 POLICY_DIR = BASE_DIR / "policy"
 RECEIPTS_DIR = BASE_DIR / "receipts"
+STREAM_DATA_DIR = BASE_DIR / "stream_data"
 RECEIPTS_DIR.mkdir(exist_ok=True, parents=True)
+STREAM_DATA_DIR.mkdir(exist_ok=True, parents=True)
+
+# Active stream storage
+active_streams: Dict[str, Dict[str, Any]] = {}
+
+# Helper function for Gate.io WebSocket connection
+async def connect_gate_ws(stream_id: str, symbols: List[str], channels: List[str], duration_seconds: int):
+    """Connect to Gate.io WebSocket and record events."""
+    messages = []
+    start_time = datetime.utcnow()
+    file_path = STREAM_DATA_DIR / f"{stream_id}.jsonl"
+
+    try:
+        async with websockets.connect(GATE_WS_BASE) as ws:
+            # Subscribe to channels
+            for symbol in symbols:
+                for channel in channels:
+                    subscribe_msg = {
+                        "time": int(datetime.utcnow().timestamp()),
+                        "channel": channel,
+                        "event": "subscribe",
+                        "payload": [symbol]
+                    }
+                    await ws.send(json.dumps(subscribe_msg))
+
+            # Record messages for duration
+            while (datetime.utcnow() - start_time).total_seconds() < duration_seconds:
+                try:
+                    message = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                    msg_data = json.loads(message)
+                    messages.append(msg_data)
+
+                    # Write to file immediately
+                    with open(file_path, 'a') as f:
+                        f.write(json.dumps(msg_data) + '\n')
+
+                except asyncio.TimeoutError:
+                    continue
+                except Exception as e:
+                    print(f"WebSocket error: {e}")
+                    break
+
+    except Exception as e:
+        print(f"WebSocket connection error: {e}")
+
+    # Update stream status
+    if stream_id in active_streams:
+        active_streams[stream_id]["status"] = "stopped"
+        active_streams[stream_id]["messages_collected"] = len(messages)
+        active_streams[stream_id]["file_path"] = str(file_path)
+
+    return messages
 
 # Initialize FastAPI
 app = FastAPI(
@@ -62,7 +120,7 @@ class ContextResponse(BaseModel):
     chat_id: str
     policy_state: Dict[str, Any]
     user_capsule: Dict[str, Any]
-    scoring_weights: Dict[str, float]
+    scoring_weights: Dict[str, Any]
     claim_labels: List[str]
 
 class VerifyRequest(BaseModel):
@@ -134,13 +192,13 @@ class GateCandlesResponse(BaseModel):
     """Response with Gate.io candles"""
     contract: str = Field(..., description="Contract symbol")
     interval: str = Field(..., description="Candle interval")
-    candles: List[Dict[str, Any]] = Field(..., description="Candle data")
+    candles: List[List[Any]] = Field(..., description="Candle data (arrays from Gate.io API)")
     source: str = Field(..., description="Data source")
     disclaimer: str = Field(..., description="Research-only disclaimer")
 
 class GateBacktestRequest(BaseModel):
     """Request for backtest"""
-    candles: List[Dict[str, Any]] = Field(..., description="Candle data")
+    candles: List[List[Any]] = Field(..., description="Candle data (arrays from Gate.io API)")
     strategy: str = Field(default="sma_cross", description="Strategy type")
     short_period: int = Field(default=10, description="Short period")
     long_period: int = Field(default=30, description="Long period")
@@ -168,8 +226,15 @@ class GateWsSampleResponse(BaseModel):
 
 class PromptCalibrateRequest(BaseModel):
     """Request for prompt calibration"""
-    user_prompt: str = Field(..., description="User's raw prompt")
+    prompt: Optional[str] = Field(None, description="User's raw prompt (v2)")
+    user_prompt: Optional[str] = Field(None, description="User's raw prompt (v1)")
     context: Optional[str] = Field(None, description="Additional context")
+
+    @model_validator(mode='before')
+    def validate_prompt_field(cls, v):
+        if not v.get('prompt') and not v.get('user_prompt'):
+            raise ValueError('Either prompt or user_prompt must be provided')
+        return v
 
 class PromptCalibrateResponse(BaseModel):
     """Response with calibrated prompt"""
@@ -650,6 +715,7 @@ async def calibrate_prompt(request: PromptCalibrateRequest):
 @app.post("/calibrate/prompt", response_model=PromptCalibrateResponse)
 async def calibrate_prompt_v2(request: PromptCalibrateRequest):
     """Convert messy user prompt into reproducible SEPF prompt (v2 endpoint)."""
+    original = request.prompt or request.user_prompt or ""
     calibrated = f"""
     SEPF-1 calibrated prompt:
     - Artifact-first: Focus on reusable artifacts (specs, code, schemas, protocols)
@@ -657,11 +723,11 @@ async def calibrate_prompt_v2(request: PromptCalibrateRequest):
     - Benchmarkable: Make the request measurable and testable
     - Receipt-ready: Generate QA receipt for substantial answers
 
-    Original request: {request.user_prompt}
+    Original request: {original}
     """
 
     return PromptCalibrateResponse(
-        original_prompt=request.user_prompt,
+        original_prompt=original,
         calibrated_prompt=calibrated.strip(),
         artifact_type="spec",
         claim_labels=["user_claimed", "inferred"]
@@ -713,12 +779,30 @@ async def estimate_cost_savings(request: CostSavingsRequest):
 
 # Gate.io stream endpoints
 @app.post("/gateio/stream/start", response_model=GateStreamStartResponse)
-async def start_gateio_stream(request: GateStreamStartRequest):
+async def start_gateio_stream(request: GateStreamStartRequest, background_tasks: BackgroundTasks):
     """Start Gate.io futures public market-data collector."""
     stream_id = f"stream-{datetime.utcnow().timestamp()}"
     receipt_hash = hashlib.sha256(stream_id.encode()).hexdigest()
 
-    # Placeholder - in production, actual WebSocket connection
+    # Initialize stream state
+    active_streams[stream_id] = {
+        "status": "starting",
+        "symbols": request.symbols,
+        "channels": request.channels,
+        "started_at": datetime.utcnow().isoformat(),
+        "messages_collected": 0,
+        "file_path": None
+    }
+
+    # Start WebSocket connection in background
+    background_tasks.add_task(
+        connect_gate_ws,
+        stream_id,
+        request.symbols,
+        request.channels,
+        request.duration_seconds
+    )
+
     return GateStreamStartResponse(
         status="started",
         stream_id=stream_id,
@@ -735,11 +819,19 @@ async def stop_gateio_stream(request: GateStreamStopRequest):
     """Stop Gate.io stream collector."""
     receipt_hash = hashlib.sha256(request.stream_id.encode()).hexdigest()
 
+    if request.stream_id in active_streams:
+        active_streams[request.stream_id]["status"] = "stopped"
+        messages_collected = active_streams[request.stream_id].get("messages_collected", 0)
+        file_path = active_streams[request.stream_id].get("file_path")
+    else:
+        messages_collected = 0
+        file_path = None
+
     return GateStreamStopResponse(
         status="stopped",
         stream_id=request.stream_id,
         stopped_at=datetime.utcnow().isoformat(),
-        messages_collected=0,  # Placeholder
+        messages_collected=messages_collected,
         receipt_hash=receipt_hash
     )
 
@@ -747,17 +839,12 @@ async def stop_gateio_stream(request: GateStreamStopRequest):
 @app.get("/gateio/stream/status")
 async def get_gateio_stream_status(stream_id: Optional[str] = None):
     """Get current stream collector status."""
-    # Placeholder - in production, actual stream status
-    return {
-        "streams": [
-            {
-                "stream_id": stream_id or "stream-placeholder",
-                "status": "running",
-                "symbols": ["BTC_USDT"],
-                "messages_collected": 0
-            }
-        ]
-    }
+    if stream_id and stream_id in active_streams:
+        return {"streams": [active_streams[stream_id]]}
+    elif stream_id:
+        return {"streams": []}
+    else:
+        return {"streams": list(active_streams.values())}
 
 
 @app.get("/gateio/snapshot", response_model=GateSnapshotResponse)
