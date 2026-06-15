@@ -1,0 +1,830 @@
+openapi: 3.1.0
+info:
+  title: LedgerMind Gate.io Calibration Runtime
+  version: 0.1.0
+  description: >
+    Custom GPT Action layer over Hugging Face Space for Gate.io stream assessment,
+    chat-history signal calibration, benchmarking, and AI-work cost/accounting.
+    This is research-only and does not provide live trading signals or guaranteed profit.
+
+servers:
+  - url: https://YOUR-HF-SPACE.hf.space
+    description: Hugging Face Space runtime
+
+paths:
+  /context:
+    post:
+      operationId: getContextCapsule
+      summary: Get repo-backed personalization and project context
+      description: Returns project context, policy state, and personalization capsule for the chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chat_id]
+              properties:
+                prompt:
+                  type: string
+                  description: User's prompt
+                chat_id:
+                  type: string
+                  description: Chat identifier
+                project_id:
+                  type: string
+                  description: Project identifier
+      responses:
+        "200":
+          description: Context capsule
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chat_id:
+                    type: string
+                  policy_state:
+                    type: object
+                  user_capsule:
+                    type: object
+                  scoring_weights:
+                    type: object
+                  claim_labels:
+                    type: array
+                    items:
+                      type: string
+
+  /gateio/stream/start:
+    post:
+      operationId: startGateioStream
+      summary: Start Gate.io futures public market-data collector
+      description: >
+        Starts a Gate.io futures WebSocket collector for public market data channels.
+        This is research-only and does not execute trades.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [symbols]
+              properties:
+                symbols:
+                  type: array
+                  items:
+                    type: string
+                  description: Contract symbols to collect
+                channels:
+                  type: array
+                  items:
+                    type: string
+                  default: ["futures.book_ticker", "futures.order_book_update"]
+                  description: WebSocket channels to subscribe
+                settle:
+                  type: string
+                  default: "usdt"
+                  description: Settlement currency
+                duration_seconds:
+                  type: integer
+                  default: 3600
+                  description: Collection duration in seconds
+      responses:
+        "200":
+          description: Stream collector status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  stream_id:
+                    type: string
+                  symbols:
+                    type: array
+                    items:
+                      type: string
+                  channels:
+                    type: array
+                    items:
+                      type: string
+                  started_at:
+                    type: string
+                  receipt_hash:
+                    type: string
+                  disclaimer:
+                    type: string
+
+  /gateio/stream/stop:
+    post:
+      operationId: stopGateioStream
+      summary: Stop Gate.io stream collector
+      description: Stops the active Gate.io stream collector and returns final receipt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stream_id]
+              properties:
+                stream_id:
+                  type: string
+      responses:
+        "200":
+          description: Stream stopped with receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  stream_id:
+                    type: string
+                  stopped_at:
+                    type: string
+                  messages_collected:
+                    type: integer
+                  receipt_hash:
+                    type: string
+
+  /gateio/stream/status:
+    get:
+      operationId: getGateioStreamStatus
+      summary: Get current stream collector status
+      parameters:
+        - name: stream_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Stream ID (optional, returns all if not provided)
+      responses:
+        "200":
+          description: Stream status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  streams:
+                    type: array
+                    items:
+                      type: object
+
+  /gateio/snapshot:
+    get:
+      operationId: getGateioSnapshot
+      summary: Get latest compressed Gate.io stream snapshot
+      description: Returns the latest market snapshot for a symbol
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Contract symbol
+      responses:
+        "200":
+          description: Latest market snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:
+                    type: string
+                  timestamp:
+                    type: string
+                  best_bid:
+                    type: number
+                  best_ask:
+                    type: number
+                  spread_bps:
+                    type: number
+                  mid_price:
+                    type: number
+                  receipt_hash:
+                    type: string
+                  disclaimer:
+                    type: string
+
+  /gateio/features:
+    get:
+      operationId: getGateioFeatures
+      summary: Get computed stream features for a symbol/window
+      description: >
+        Returns compressed feature vectors computed from stream data.
+        This is research-only market quality assessment, not a trading signal.
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Contract symbol
+        - name: window_seconds
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 60
+          description: Time window in seconds
+      responses:
+        "200":
+          description: Feature vector
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:
+                    type: string
+                  window_seconds:
+                    type: integer
+                  features:
+                    type: object
+                    properties:
+                      best_bid:
+                        type: number
+                      best_ask:
+                        type: number
+                      spread_bps:
+                        type: number
+                      mid_price:
+                        type: number
+                      book_imbalance_top5:
+                        type: number
+                      update_rate_per_sec:
+                        type: number
+                      micro_volatility_bps:
+                        type: number
+                      liquidity_top5_usdt:
+                        type: number
+                      staleness_ms:
+                        type: number
+                  claim_label:
+                    type: string
+                  receipt_hash:
+                    type: string
+                  disclaimer:
+                    type: string
+
+  /gateio/backtest:
+    post:
+      operationId: backtestGateioStrategy
+      summary: Backtest or replay a strategy on recorded Gate.io stream data
+      description: >
+        Runs a backtest on recorded stream data. Output is labeled with claim boundaries.
+        This is a research estimate, not live profit or a trading signal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [strategy_id, symbols]
+              properties:
+                strategy_id:
+                  type: string
+                  description: Strategy identifier
+                symbols:
+                  type: array
+                  items:
+                    type: string
+                  description: Contract symbols
+                start:
+                  type: string
+                  description: Start timestamp (ISO 8601)
+                end:
+                  type: string
+                  description: End timestamp (ISO 8601)
+                mode:
+                  type: string
+                  enum: ["paper", "replay"]
+                  default: "paper"
+                  description: Backtest mode
+                fees_bps:
+                  type: number
+                  default: 2
+                  description: Fee basis points
+                slippage_model:
+                  type: string
+                  default: "book_aware"
+                  description: Slippage model
+      responses:
+        "200":
+          description: Backtest result with assumptions and claim labels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  strategy_id:
+                    type: string
+                  symbols:
+                    type: array
+                    items:
+                      type: string
+                  output:
+                    type: object
+                    properties:
+                      pnl_hypothetical:
+                        type: number
+                      max_drawdown:
+                        type: number
+                      fill_quality:
+                        type: number
+                      spread_capture:
+                        type: number
+                      latency_sensitivity:
+                        type: number
+                  claim_labels:
+                    type: object
+                  receipt_hash:
+                    type: string
+                  disclaimer:
+                    type: string
+
+  /gateio/replay:
+    post:
+      operationId: replayGateioStream
+      summary: Replay recorded Gate.io stream data
+      description: Replays previously recorded stream data for analysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stream_id]
+              properties:
+                stream_id:
+                  type: string
+                start_offset:
+                  type: integer
+                  default: 0
+                duration_seconds:
+                  type: integer
+                  default: 60
+      responses:
+        "200":
+          description: Replay data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stream_id:
+                    type: string
+                  replay_data:
+                    type: array
+                    items:
+                      type: object
+                  receipt_hash:
+                    type: string
+
+  /calibrate/prompt:
+    post:
+      operationId: calibratePrompt
+      summary: Convert a raw user prompt into a calibrated artifact-first prompt plan
+      description: >
+        Converts messy user prompts into SEPF-1 calibrated prompts that are
+        artifact-first, claim-labeled, benchmarkable, and receipt-ready.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt:
+                  type: string
+                  description: User's raw prompt
+                user_context_allowed:
+                  type: boolean
+                  default: true
+                  description: Whether user context is allowed
+                project_id:
+                  type: string
+                  description: Project identifier
+      responses:
+        "200":
+          description: Calibrated prompt plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  original_prompt:
+                    type: string
+                  calibrated_prompt:
+                    type: string
+                  artifact_type:
+                    type: string
+                  claim_labels:
+                    type: array
+                    items:
+                      type: string
+                  suggested_endpoints:
+                    type: array
+                    items:
+                      type: string
+                  receipt_hash:
+                    type: string
+
+  /benchmark/prompt:
+    post:
+      operationId: benchmarkPrompt
+      summary: Compare baseline response vs runtime-calibrated response
+      description: >
+        Compares a baseline answer against a runtime-calibrated answer
+        to measure artifact density and quality delta.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt, baseline_answer, runtime_answer]
+              properties:
+                prompt:
+                  type: string
+                  description: Original prompt
+                baseline_answer:
+                  type: string
+                  description: Baseline answer (without runtime)
+                runtime_answer:
+                  type: string
+                  description: Runtime-calibrated answer
+                metrics:
+                  type: object
+                  description: Additional metrics to compare
+      responses:
+        "200":
+          description: Benchmark delta
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prompt:
+                    type: string
+                  baseline_metrics:
+                    type: object
+                  runtime_metrics:
+                    type: object
+                  delta:
+                    type: object
+                  artifact_score_delta:
+                    type: number
+                  time_delta_seconds:
+                    type: number
+                  receipt_hash:
+                    type: string
+
+  /benchmark/compare:
+    post:
+      operationId: benchmarkCompare
+    summary: Compare multiple benchmark runs
+    description: Compares multiple benchmark results across different models or configurations
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [benchmarks]
+            properties:
+              benchmarks:
+                type: array
+                items:
+                  type: object
+    responses:
+      "200":
+        description: Comparison results
+        content:
+          application/json:
+            schema:
+              type: object
+
+  /benchmarks/latest:
+    get:
+      operationId: getLatestBenchmarks
+      summary: Get latest benchmark results
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Latest benchmarks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  benchmarks:
+                    type: array
+                    items:
+                      type: object
+
+  /cost/estimate:
+    post:
+      operationId: estimateAssistedWorkSavings
+      summary: Estimate user-side AI-assisted work savings from measured benchmark delta
+      description: >
+        Estimates user-side replacement cost/time savings from benchmark delta.
+        This is user-side savings, not provider-side savings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                baseline_minutes:
+                  type: number
+                  description: Baseline time in minutes
+                runtime_minutes:
+                  type: number
+                  description: Runtime time in minutes
+                hourly_rate_usd:
+                  type: number
+                  description: Hourly rate in USD
+                artifact_score_delta:
+                  type: number
+                  description: Artifact quality score delta
+                complexity:
+                  type: string
+                  enum: ["low", "medium", "high"]
+                  default: "medium"
+      responses:
+        "200":
+          description: User-side cost/time-savings estimate
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  baseline_minutes:
+                    type: number
+                  runtime_minutes:
+                    type: number
+                  time_saved_minutes:
+                    type: number
+                  hourly_rate_usd:
+                    type: number
+                  user_savings_usd:
+                    type: number
+                  artifact_score_delta:
+                    type: number
+                  artifact_residue:
+                    type: number
+                  replacement_cost_low:
+                    type: number
+                  replacement_cost_base:
+                    type: number
+                  replacement_cost_high:
+                    type: number
+                  receipt_hash:
+                    type: string
+                  disclaimer:
+                    type: string
+
+  /residue/score:
+    post:
+      operationId: calculateResidueScore
+      summary: Calculate artifact residue score from benchmark comparison
+      description: Calculates the residual value of AI-assisted work
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [baseline_score, runtime_score]
+              properties:
+                baseline_score:
+                  type: number
+                runtime_score:
+                  type: number
+                decay_factor:
+                  type: number
+                  default: 0.1
+      responses:
+        "200":
+          description: Residue score
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  baseline_score:
+                    type: number
+                  runtime_score:
+                    type: number
+                  residue:
+                    type: number
+                  receipt_hash:
+                    type: string
+
+  /receipts/latest:
+    get:
+      operationId: getLatestReceipt
+      summary: Get latest QA or benchmark receipt
+      parameters:
+        - name: receipt_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["qa", "benchmark", "stream", "backtest"]
+      responses:
+        "200":
+          description: Latest receipt
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /verify:
+    post:
+      operationId: verifyClaims
+      summary: Label and quarantine claims
+      description: >
+        Verifies claims against policy and evidence. Labels claims as
+        verified, user_claimed, inferred, unknown, quarantined, or blocked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                claims:
+                  type: array
+                  items:
+                    type: string
+                context:
+                  type: object
+      responses:
+        "200":
+          description: Claim labels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  claims:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        claim:
+                          type: string
+                        label:
+                          type: string
+                        confidence:
+                          type: number
+                        evidence_refs:
+                          type: array
+                          items:
+                            type: string
+
+  /receipt:
+    post:
+      operationId: createReceipt
+      summary: Store a hash-linked QA or benchmark receipt
+      description: Stores a receipt with SHA-256 hash and timestamp for audit trail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer]
+              properties:
+                chat_id:
+                  type: string
+                answer:
+                  type: string
+                metadata:
+                  type: object
+                receipt_type:
+                  type: string
+                  enum: ["qa", "benchmark", "stream", "backtest"]
+                  default: "qa"
+      responses:
+        "200":
+          description: Receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  receipt_id:
+                    type: string
+                  chat_id:
+                    type: string
+                  sha256_hash:
+                    type: string
+                  timestamp:
+                    type: string
+                  stored:
+                    type: boolean
+
+  /policy:
+    get:
+      operationId: getPolicy
+      summary: Get current policy state
+      description: Returns the current policy state including blocked claims and boundaries
+      responses:
+        "200":
+          description: Policy state
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /claim-labels:
+    get:
+      operationId: getClaimLabels
+      summary: Get available claim labels
+      description: Returns the taxonomy of claim labels
+      responses:
+        "200":
+          description: Claim labels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  labels:
+                    type: array
+                    items:
+                      type: string
+                  blocked_patterns:
+                    type: array
+                    items:
+                      type: string
+
+  /blocked-claims:
+    get:
+      operationId: getBlockedClaims
+      summary: Get blocked claim patterns
+      description: Returns the list of blocked claim patterns
+      responses:
+        "200":
+          description: Blocked claims
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blocked_claims:
+                    type: array
+                    items:
+                      type: string
+                  reasons:
+                    type: object
+
+  /score:
+    post:
+      operationId: scoreAnswer
+      summary: Score answer for density and artifact yield
+      description: Scores an answer for information density and artifact yield
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer, chat_id]
+              properties:
+                answer:
+                  type: string
+                chat_id:
+                  type: string
+      responses:
+        "200":
+          description: Score result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  answer:
+                    type: string
+                  density_score:
+                    type: number
+                  artifact_count:
+                    type: integer
+                  overall_grade:
+                    type: string

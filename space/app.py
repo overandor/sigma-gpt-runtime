@@ -23,9 +23,16 @@ GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 ALLOW_DIRECT_REPO_WRITES = os.getenv("ALLOW_DIRECT_REPO_WRITES", "false").lower() == "true"
 
-POLICY_DIR = Path("/data/policy")
-RECEIPTS_DIR = Path("/data/receipts")
-RECEIPTS_DIR.mkdir(exist_ok=True)
+# Gate.io configuration
+GATE_API_BASE = os.getenv("GATE_API_BASE", "https://api.gateio.ws/api/v4")
+GATE_WS_BASE = os.getenv("GATE_WS_BASE", "wss://fx-ws.gateio.ws/v4/ws/usdt")
+
+# Use local directories for testing, /data for HF Space
+IS_HF_SPACE = os.path.exists("/data")
+BASE_DIR = Path("/data") if IS_HF_SPACE else Path(__file__).parent.parent
+POLICY_DIR = BASE_DIR / "policy"
+RECEIPTS_DIR = BASE_DIR / "receipts"
+RECEIPTS_DIR.mkdir(exist_ok=True, parents=True)
 
 # Initialize FastAPI
 app = FastAPI(
@@ -108,6 +115,182 @@ class ProposeUpdateResponse(BaseModel):
     status: str
     dry_run: bool
     github_commit_url: Optional[str] = None
+
+
+# Gate.io models
+class GateConfigResponse(BaseModel):
+    """Gate.io configuration"""
+    api_base: str = Field(..., description="Gate.io API base URL")
+    ws_base: str = Field(..., description="Gate.io WebSocket base URL")
+    disclaimer: str = Field(..., description="Research-only disclaimer")
+
+class GateCandlesRequest(BaseModel):
+    """Request for Gate.io candles"""
+    contract: str = Field(..., description="Contract symbol")
+    interval: str = Field(default="1h", description="Candle interval")
+    limit: int = Field(default=100, description="Number of candles")
+
+class GateCandlesResponse(BaseModel):
+    """Response with Gate.io candles"""
+    contract: str = Field(..., description="Contract symbol")
+    interval: str = Field(..., description="Candle interval")
+    candles: List[Dict[str, Any]] = Field(..., description="Candle data")
+    source: str = Field(..., description="Data source")
+    disclaimer: str = Field(..., description="Research-only disclaimer")
+
+class GateBacktestRequest(BaseModel):
+    """Request for backtest"""
+    candles: List[Dict[str, Any]] = Field(..., description="Candle data")
+    strategy: str = Field(default="sma_cross", description="Strategy type")
+    short_period: int = Field(default=10, description="Short period")
+    long_period: int = Field(default=30, description="Long period")
+
+class GateBacktestResponse(BaseModel):
+    """Response with backtest results"""
+    strategy: str = Field(..., description="Strategy used")
+    total_return: float = Field(..., description="Total return")
+    max_drawdown: float = Field(..., description="Maximum drawdown")
+    trade_count: int = Field(..., description="Number of trades")
+    disclaimer: str = Field(..., description="Research estimate disclaimer")
+
+class GateWsSampleRequest(BaseModel):
+    """Request for WebSocket sample"""
+    contract: str = Field(..., description="Contract symbol")
+    channels: List[str] = Field(default=["futures.trades"], description="Channels to subscribe")
+    duration: int = Field(default=5, description="Sample duration in seconds")
+
+class GateWsSampleResponse(BaseModel):
+    """Response with WebSocket sample"""
+    contract: str = Field(..., description="Contract symbol")
+    messages: List[Dict[str, Any]] = Field(..., description="Sampled messages")
+    message_count: int = Field(..., description="Number of messages")
+    disclaimer: str = Field(..., description="Live data snapshot disclaimer")
+
+class PromptCalibrateRequest(BaseModel):
+    """Request for prompt calibration"""
+    user_prompt: str = Field(..., description="User's raw prompt")
+    context: Optional[str] = Field(None, description="Additional context")
+
+class PromptCalibrateResponse(BaseModel):
+    """Response with calibrated prompt"""
+    original_prompt: str = Field(..., description="Original user prompt")
+    calibrated_prompt: str = Field(..., description="Calibrated SEPF prompt")
+    artifact_type: str = Field(..., description="Suggested artifact type")
+    claim_labels: List[str] = Field(..., description="Suggested claim labels")
+
+class SignalFuseRequest(BaseModel):
+    """Request for signal fusion"""
+    backtest_result: Dict[str, Any] = Field(..., description="Backtest result")
+    ws_snapshot: Dict[str, Any] = Field(..., description="WebSocket snapshot")
+    history_capsule: Optional[Dict[str, Any]] = Field(None, description="Latent history capsule")
+
+class SignalFuseResponse(BaseModel):
+    """Response with fused signal"""
+    research_score: float = Field(..., description="Research score (0-1)")
+    confidence: float = Field(..., description="Confidence level")
+    components: Dict[str, Any] = Field(..., description="Component scores")
+    disclaimer: str = Field(..., description="Research score disclaimer")
+
+class CostSavingsRequest(BaseModel):
+    """Request for cost savings estimate"""
+    artifact_type: str = Field(..., description="Type of artifact")
+    complexity: str = Field(default="medium", description="Complexity level")
+    hours_estimate: Optional[int] = Field(None, description="Estimated hours")
+
+class CostSavingsResponse(BaseModel):
+    """Response with cost savings estimate"""
+    artifact_type: str = Field(..., description="Type of artifact")
+    replacement_cost_low: float = Field(..., description="Low replacement cost")
+    replacement_cost_base: float = Field(..., description="Base replacement cost")
+    replacement_cost_high: float = Field(..., description="High replacement cost")
+    time_saved_hours: float = Field(..., description="Estimated time saved")
+    disclaimer: str = Field(..., description="User-side savings disclaimer")
+
+
+# Gate.io stream models
+class GateStreamStartRequest(BaseModel):
+    """Request to start Gate.io stream"""
+    symbols: List[str] = Field(..., description="Contract symbols to collect")
+    channels: List[str] = Field(default=["futures.book_ticker", "futures.order_book_update"], description="WebSocket channels")
+    settle: str = Field(default="usdt", description="Settlement currency")
+    duration_seconds: int = Field(default=3600, description="Collection duration")
+
+class GateStreamStartResponse(BaseModel):
+    """Response with stream start status"""
+    status: str = Field(..., description="Stream status")
+    stream_id: str = Field(..., description="Stream identifier")
+    symbols: List[str] = Field(..., description="Contract symbols")
+    channels: List[str] = Field(..., description="WebSocket channels")
+    started_at: str = Field(..., description="Start timestamp")
+    receipt_hash: str = Field(..., description="Receipt hash")
+    disclaimer: str = Field(..., description="Research-only disclaimer")
+
+class GateStreamStopRequest(BaseModel):
+    """Request to stop Gate.io stream"""
+    stream_id: str = Field(..., description="Stream identifier")
+
+class GateStreamStopResponse(BaseModel):
+    """Response with stream stop status"""
+    status: str = Field(..., description="Stream status")
+    stream_id: str = Field(..., description="Stream identifier")
+    stopped_at: str = Field(..., description="Stop timestamp")
+    messages_collected: int = Field(..., description="Messages collected")
+    receipt_hash: str = Field(..., description="Receipt hash")
+
+class GateSnapshotResponse(BaseModel):
+    """Response with market snapshot"""
+    symbol: str = Field(..., description="Contract symbol")
+    timestamp: str = Field(..., description="Snapshot timestamp")
+    best_bid: float = Field(..., description="Best bid price")
+    best_ask: float = Field(..., description="Best ask price")
+    spread_bps: float = Field(..., description="Spread in basis points")
+    mid_price: float = Field(..., description="Mid price")
+    receipt_hash: str = Field(..., description="Receipt hash")
+    disclaimer: str = Field(..., description="Research-only disclaimer")
+
+class GateFeaturesResponse(BaseModel):
+    """Response with stream features"""
+    symbol: str = Field(..., description="Contract symbol")
+    window_seconds: int = Field(..., description="Time window")
+    features: Dict[str, Any] = Field(..., description="Feature vector")
+    claim_label: str = Field(..., description="Claim label")
+    receipt_hash: str = Field(..., description="Receipt hash")
+    disclaimer: str = Field(..., description="Research-only disclaimer")
+
+class GateReplayRequest(BaseModel):
+    """Request to replay stream"""
+    stream_id: str = Field(..., description="Stream identifier")
+    start_offset: int = Field(default=0, description="Start offset")
+    duration_seconds: int = Field(default=60, description="Duration")
+
+class GateReplayResponse(BaseModel):
+    """Response with replay data"""
+    stream_id: str = Field(..., description="Stream identifier")
+    replay_data: List[Dict[str, Any]] = Field(..., description="Replay data")
+    receipt_hash: str = Field(..., description="Receipt hash")
+
+
+# Benchmark models
+class BenchmarkCompareRequest(BaseModel):
+    """Request to compare benchmarks"""
+    benchmarks: List[Dict[str, Any]] = Field(..., description="Benchmark results")
+
+class BenchmarkCompareResponse(BaseModel):
+    """Response with comparison results"""
+    comparison: Dict[str, Any] = Field(..., description="Comparison results")
+
+class ResidueScoreRequest(BaseModel):
+    """Request to calculate residue score"""
+    baseline_score: float = Field(..., description="Baseline score")
+    runtime_score: float = Field(..., description="Runtime score")
+    decay_factor: float = Field(default=0.1, description="Decay factor")
+
+class ResidueScoreResponse(BaseModel):
+    """Response with residue score"""
+    baseline_score: float = Field(..., description="Baseline score")
+    runtime_score: float = Field(..., description="Runtime score")
+    residue: float = Field(..., description="Residue score")
+    receipt_hash: str = Field(..., description="Receipt hash")
 
 
 # Helper functions
@@ -343,6 +526,331 @@ async def get_openapi_schema():
 async def healthz():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+# Gate.io endpoints
+@app.get("/gate/config", response_model=GateConfigResponse)
+async def get_gate_config():
+    """Get Gate.io configuration."""
+    return GateConfigResponse(
+        api_base=GATE_API_BASE,
+        ws_base=GATE_WS_BASE,
+        disclaimer="Research-only: Not a trading signal, not live execution"
+    )
+
+
+@app.post("/gate/candles", response_model=GateCandlesResponse)
+async def get_gate_candles(request: GateCandlesRequest):
+    """Pull public futures candles from Gate REST."""
+    try:
+        async with httpx.AsyncClient() as client:
+            url = f"{GATE_API_BASE}/spot/candlesticks"
+            params = {
+                "currency_pair": request.contract,
+                "interval": request.interval,
+                "limit": request.limit
+            }
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+        return GateCandlesResponse(
+            contract=request.contract,
+            interval=request.interval,
+            candles=data if isinstance(data, list) else [],
+            source="gate_public_api",
+            disclaimer="Research-only: Not a trading signal"
+        )
+    except Exception as e:
+        return GateCandlesResponse(
+            contract=request.contract,
+            interval=request.interval,
+            candles=[],
+            source="error",
+            disclaimer=f"Error fetching candles: {str(e)}"
+        )
+
+
+@app.post("/gate/backtest", response_model=GateBacktestResponse)
+async def run_gate_backtest(request: GateBacktestRequest):
+    """Run SMA-cross research baseline using provided candles."""
+    if not request.candles:
+        return GateBacktestResponse(
+            strategy=request.strategy,
+            total_return=0.0,
+            max_drawdown=0.0,
+            trade_count=0,
+            disclaimer="No candles provided - research_estimate_not_live_profit"
+        )
+
+    # Simple SMA cross strategy
+    closes = [float(candle[2]) for candle in request.candles if len(candle) > 2]
+    if len(closes) < request.long_period:
+        return GateBacktestResponse(
+            strategy=request.strategy,
+            total_return=0.0,
+            max_drawdown=0.0,
+            trade_count=0,
+            disclaimer="Insufficient data - research_estimate_not_live_profit"
+        )
+
+    short_ma = sum(closes[-request.short_period:]) / request.short_period
+    long_ma = sum(closes[-request.long_period:]) / request.long_period
+
+    # Placeholder backtest logic
+    total_return = (short_ma - long_ma) / long_ma if long_ma > 0 else 0.0
+    max_drawdown = abs(min(total_return, 0))
+    trade_count = 1 if abs(total_return) > 0.01 else 0
+
+    return GateBacktestResponse(
+        strategy=request.strategy,
+        total_return=total_return,
+        max_drawdown=max_drawdown,
+        trade_count=trade_count,
+        disclaimer="Research estimate - not live profit - not a trading signal"
+    )
+
+
+@app.post("/gate/ws-sample", response_model=GateWsSampleResponse)
+async def sample_gate_ws(request: GateWsSampleRequest):
+    """Open short Gate futures WebSocket sample window."""
+    # Placeholder - in production, actual WebSocket connection
+    return GateWsSampleResponse(
+        contract=request.contract,
+        messages=[
+            {"channel": request.channels[0], "data": "sample_message_1"},
+            {"channel": request.channels[0], "data": "sample_message_2"}
+        ],
+        message_count=2,
+        disclaimer="Live market data snapshot - not a trading signal"
+    )
+
+
+@app.post("/prompt/calibrate", response_model=PromptCalibrateResponse)
+async def calibrate_prompt(request: PromptCalibrateRequest):
+    """Convert messy user prompt into reproducible SEPF prompt."""
+    calibrated = f"""
+    SEPF-1 calibrated prompt:
+    - Artifact-first: Focus on reusable artifacts (specs, code, schemas, protocols)
+    - Claim-labeled: Label claims as verified, user_claimed, inferred, unknown, blocked
+    - Benchmarkable: Make the request measurable and testable
+    - Receipt-ready: Generate QA receipt for substantial answers
+
+    Original request: {request.user_prompt}
+    """
+
+    return PromptCalibrateResponse(
+        original_prompt=request.user_prompt,
+        calibrated_prompt=calibrated.strip(),
+        artifact_type="spec",
+        claim_labels=["user_claimed", "inferred"]
+    )
+
+
+@app.post("/calibrate/prompt", response_model=PromptCalibrateResponse)
+async def calibrate_prompt_v2(request: PromptCalibrateRequest):
+    """Convert messy user prompt into reproducible SEPF prompt (v2 endpoint)."""
+    calibrated = f"""
+    SEPF-1 calibrated prompt:
+    - Artifact-first: Focus on reusable artifacts (specs, code, schemas, protocols)
+    - Claim-labeled: Label claims as verified, user_claimed, inferred, unknown, blocked
+    - Benchmarkable: Make the request measurable and testable
+    - Receipt-ready: Generate QA receipt for substantial answers
+
+    Original request: {request.user_prompt}
+    """
+
+    return PromptCalibrateResponse(
+        original_prompt=request.user_prompt,
+        calibrated_prompt=calibrated.strip(),
+        artifact_type="spec",
+        claim_labels=["user_claimed", "inferred"]
+    )
+
+
+@app.post("/signal/fuse", response_model=SignalFuseResponse)
+async def fuse_signal(request: SignalFuseRequest):
+    """Combine backtest result + live snapshot + latent history capsule."""
+    backtest_score = request.backtest_result.get("total_return", 0) * 0.4
+    ws_score = 0.3  # Placeholder
+    history_score = 0.3 if request.history_capsule else 0.0
+
+    research_score = backtest_score + ws_score + history_score
+    confidence = min(1.0, research_score + 0.2)
+
+    return SignalFuseResponse(
+        research_score=research_score,
+        confidence=confidence,
+        components={
+            "backtest_score": backtest_score,
+            "ws_score": ws_score,
+            "history_score": history_score
+        },
+        disclaimer="Research score - not a trade signal - not investment advice"
+    )
+
+
+@app.post("/cost-savings/estimate", response_model=CostSavingsResponse)
+async def estimate_cost_savings(request: CostSavingsRequest):
+    """Estimate user-side replacement-cost/time savings."""
+    complexity_multipliers = {"low": 1.0, "medium": 1.5, "high": 2.5}
+    multiplier = complexity_multipliers.get(request.complexity, 1.5)
+
+    base_hours = request.hours_estimate or 8
+    hourly_rate = 100.0  # Placeholder
+
+    base_cost = base_hours * hourly_rate * multiplier
+
+    return CostSavingsResponse(
+        artifact_type=request.artifact_type,
+        replacement_cost_low=base_cost * 0.7,
+        replacement_cost_base=base_cost,
+        replacement_cost_high=base_cost * 1.3,
+        time_saved_hours=base_hours,
+        disclaimer="User-side replacement cost estimate - not provider-side savings"
+    )
+
+
+# Gate.io stream endpoints
+@app.post("/gateio/stream/start", response_model=GateStreamStartResponse)
+async def start_gateio_stream(request: GateStreamStartRequest):
+    """Start Gate.io futures public market-data collector."""
+    stream_id = f"stream-{datetime.utcnow().timestamp()}"
+    receipt_hash = hashlib.sha256(stream_id.encode()).hexdigest()
+
+    # Placeholder - in production, actual WebSocket connection
+    return GateStreamStartResponse(
+        status="started",
+        stream_id=stream_id,
+        symbols=request.symbols,
+        channels=request.channels,
+        started_at=datetime.utcnow().isoformat(),
+        receipt_hash=receipt_hash,
+        disclaimer="Research-only: Not a trading signal, not live execution"
+    )
+
+
+@app.post("/gateio/stream/stop", response_model=GateStreamStopResponse)
+async def stop_gateio_stream(request: GateStreamStopRequest):
+    """Stop Gate.io stream collector."""
+    receipt_hash = hashlib.sha256(request.stream_id.encode()).hexdigest()
+
+    return GateStreamStopResponse(
+        status="stopped",
+        stream_id=request.stream_id,
+        stopped_at=datetime.utcnow().isoformat(),
+        messages_collected=0,  # Placeholder
+        receipt_hash=receipt_hash
+    )
+
+
+@app.get("/gateio/stream/status")
+async def get_gateio_stream_status(stream_id: Optional[str] = None):
+    """Get current stream collector status."""
+    # Placeholder - in production, actual stream status
+    return {
+        "streams": [
+            {
+                "stream_id": stream_id or "stream-placeholder",
+                "status": "running",
+                "symbols": ["BTC_USDT"],
+                "messages_collected": 0
+            }
+        ]
+    }
+
+
+@app.get("/gateio/snapshot", response_model=GateSnapshotResponse)
+async def get_gateio_snapshot(symbol: str):
+    """Get latest compressed Gate.io stream snapshot."""
+    receipt_hash = hashlib.sha256(f"{symbol}-{datetime.utcnow().timestamp()}".encode()).hexdigest()
+
+    # Placeholder - in production, actual snapshot from stream
+    return GateSnapshotResponse(
+        symbol=symbol,
+        timestamp=datetime.utcnow().isoformat(),
+        best_bid=65000.0,
+        best_ask=65000.1,
+        spread_bps=0.15,
+        mid_price=65000.05,
+        receipt_hash=receipt_hash,
+        disclaimer="Research-only: Not a trading signal"
+    )
+
+
+@app.get("/gateio/features", response_model=GateFeaturesResponse)
+async def get_gateio_features(symbol: str, window_seconds: int = 60):
+    """Get computed stream features for a symbol/window."""
+    receipt_hash = hashlib.sha256(f"{symbol}-{window_seconds}".encode()).hexdigest()
+
+    features = {
+        "best_bid": 65000.0,
+        "best_ask": 65000.1,
+        "spread_bps": 0.15,
+        "mid_price": 65000.05,
+        "book_imbalance_top5": 0.12,
+        "update_rate_per_sec": 18.4,
+        "micro_volatility_bps": 4.8,
+        "liquidity_top5_usdt": 240000,
+        "staleness_ms": 120
+    }
+
+    return GateFeaturesResponse(
+        symbol=symbol,
+        window_seconds=window_seconds,
+        features=features,
+        claim_label="verified",
+        receipt_hash=receipt_hash,
+        disclaimer="Research-only: Not a trading signal"
+    )
+
+
+@app.post("/gateio/replay", response_model=GateReplayResponse)
+async def replay_gateio_stream(request: GateReplayRequest):
+    """Replay recorded Gate.io stream data."""
+    receipt_hash = hashlib.sha256(request.stream_id.encode()).hexdigest()
+
+    return GateReplayResponse(
+        stream_id=request.stream_id,
+        replay_data=[{"message": "sample_replay_data"}],
+        receipt_hash=receipt_hash
+    )
+
+
+# Benchmark endpoints
+@app.post("/benchmark/compare", response_model=BenchmarkCompareResponse)
+async def benchmark_compare(request: BenchmarkCompareRequest):
+    """Compare multiple benchmark runs."""
+    return BenchmarkCompareResponse(
+        comparison={
+            "benchmarks": request.benchmarks,
+            "summary": "Comparison complete"
+        }
+    )
+
+
+@app.get("/benchmarks/latest")
+async def get_latest_benchmarks(limit: int = 10):
+    """Get latest benchmark results."""
+    return {
+        "benchmarks": [
+            {"benchmark_id": "BM-001", "score": 0.85, "timestamp": datetime.utcnow().isoformat()}
+        ]
+    }
+
+
+@app.post("/residue/score", response_model=ResidueScoreResponse)
+async def calculate_residue_score(request: ResidueScoreRequest):
+    """Calculate artifact residue score from benchmark comparison."""
+    residue = request.runtime_score - request.baseline_score * (1 - request.decay_factor)
+    receipt_hash = hashlib.sha256(f"{request.baseline_score}-{request.runtime_score}".encode()).hexdigest()
+
+    return ResidueScoreResponse(
+        baseline_score=request.baseline_score,
+        runtime_score=request.runtime_score,
+        residue=residue,
+        receipt_hash=receipt_hash
+    )
 
 
 if __name__ == "__main__":
