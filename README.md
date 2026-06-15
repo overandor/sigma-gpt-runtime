@@ -1,6 +1,6 @@
-# Sigma GPT Runtime
+# Sigma GPT Runtime - Gate.io Calibration
 
-**GitHub → Hugging Face Space → Custom GPT Action** loop for repo-backed personalization and receipt storage.
+**GitHub → Hugging Face Space → Custom GPT Action** loop for repo-backed personalization, Gate.io market data research, and receipt storage.
 
 ## Architecture
 
@@ -10,25 +10,51 @@ GitHub Actions = validates + syncs repo to Hugging Face
 Hugging Face Space = serves live API endpoints
 Custom GPT Action = calls those endpoints during chat
 /receipt + /propose-update = stores answer receipts and policy deltas
+Gate.io WebSocket = public market data collection (research-only)
 ```
 
 ## Components
 
 ### Hugging Face Space Endpoints
 
-- `GET /` - Runtime information
+#### Account Cognition
+- `GET /healthz` - Health check
 - `POST /context` - Get repo-backed personalization capsule
 - `GET /policy` - Get current policy state
 - `POST /verify` - Verify claims against policy
 - `POST /score` - Score answer for density and artifact yield
 - `POST /receipt` - Store answer receipt with hash
 - `GET /receipts/latest` - Get most recent receipt
+
+#### Gate.io Market Stream (Research-Only)
+- `GET /gate/config` - Gate.io API configuration
+- `POST /gate/candles` - Pull public futures candles from Gate REST
+- `POST /gate/backtest` - Run SMA-cross research baseline
+- `POST /gate/ws-sample` - Sample WebSocket messages
+- `POST /gateio/stream/start` - Start Gate.io futures public market-data collector
+- `POST /gateio/stream/stop` - Stop Gate.io stream collector
+- `GET /gateio/stream/status` - Get current stream collector status
+- `GET /gateio/snapshot` - Get latest compressed Gate.io stream snapshot
+- `GET /gateio/features` - Get computed stream features for a symbol/window
+- `POST /gateio/replay` - Replay recorded Gate.io stream data
+
+#### Prompt Calibration
+- `POST /prompt/calibrate` - Convert raw user prompt into calibrated artifact-first prompt
+- `POST /calibrate/prompt` - V2 endpoint for prompt calibration
+
+#### Signal & Accounting
+- `POST /signal/fuse` - Combine backtest result + live snapshot + latent history capsule
+- `POST /cost-savings/estimate` - Estimate user-side AI-assisted work savings
+- `POST /benchmark/compare` - Compare multiple benchmark runs
+- `POST /residue/score` - Calculate artifact residue score
+- `GET /benchmarks/latest` - Get latest benchmark results
+
+#### System
 - `POST /benchmark` - Run benchmark on prompt
 - `POST /propose-update` - Propose policy update to GitHub
 - `POST /repo/refresh` - Trigger repo refresh from GitHub
 - `GET /instructions` - Get Custom GPT instructions
 - `GET /openapi.json` - Get OpenAPI schema for GPT Actions
-- `GET /healthz` - Health check
 
 ### Policy Files
 
